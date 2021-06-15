@@ -12,7 +12,11 @@ public class NsupdateClient {
 
     public NsupdateClient() throws InterruptedException {
         while(true){
-            checkIPv4();
+            try{
+                checkIPv4();
+            }catch(Exception exc){
+                System.err.println("Error: " + exc.getMessage());
+            }
             Thread.sleep(30000);
         }
     }
@@ -75,7 +79,10 @@ public class NsupdateClient {
             //System.out.println(response.statusCode());
             //System.out.println(response.body());
             String responseString = response.body();
-            if(response.statusCode() == 200 && responseString.startsWith("good ")){
+            if(response.statusCode() == 200 && responseString.startsWith("good ")) {
+                System.out.println("Updated with: " + responseString);
+                return responseString.substring(5);
+            }else if(response.statusCode() == 200 && responseString.startsWith("nochg ")){
                 System.out.println("Updated with: " + responseString);
                 return responseString.substring(6);
             }else{
