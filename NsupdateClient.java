@@ -14,7 +14,7 @@ public class NsupdateClient {
     private String password = "pw";
     private InetAddress lastUpdatedIPv4 = null;
     private InetAddress lastUpdatedIPv6 = null;
-    private final long HTTP_REQUEST_TIMEOUT = 15; //in seconds
+    private final long HTTP_REQUEST_TIMEOUT = 25; //in seconds
 
     public NsupdateClient() {
         checkIP();
