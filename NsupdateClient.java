@@ -3,6 +3,10 @@ import java.net.*;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 public class NsupdateClient {
 
@@ -10,11 +14,18 @@ public class NsupdateClient {
     private String password = "pw";
     private InetAddress lastUpdatedIPv4 = null;
     private InetAddress lastUpdatedIPv6 = null;
+    private final long HTTP_REQUEST_TIMEOUT = 15; //in seconds
 
-    public NsupdateClient() throws InterruptedException {
+    public NsupdateClient() {
+        checkIP();
         while(true){
-            checkIP();
-            Thread.sleep(30000);
+            try {
+                Thread.sleep(30000);
+                checkIP();
+            } catch (InterruptedException e) {
+                System.out.println("Thread got interrupted"); //but wee keep going
+                e.printStackTrace();
+            }
         }
     }
     private boolean testNewAddress(InetAddress oldIP,InetAddress newIP){
@@ -54,7 +65,7 @@ public class NsupdateClient {
         }
         //is update needed?
         if( testNewAddress(lastUpdatedIPv4, currentIP4) ){
-            //update (only when currentIP != null and lastUpdatedIPv4 != null)
+            //update (only when currentIP != null and lastUpdatedIPv4 != currentIP4)
             lastUpdatedIPv4 = updateIP(this.hostAddress, this.password,currentIP4,'4');
         }
         if(testNewAddress(lastUpdatedIPv6, currentIP6)){
@@ -68,17 +79,19 @@ public class NsupdateClient {
                 .uri(URI.create("https://ipv"+version+".nsupdate.info/myip"))
                 .build();
         try {
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            //System.out.println(response.statusCode());
-            //System.out.println(response.body());
+            CompletableFuture<HttpResponse<String>> requestThread = client.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = requestThread.get(HTTP_REQUEST_TIMEOUT, TimeUnit.SECONDS);
             return InetAddress.getByName(response.body());
         } catch (IOException e) {
             e.printStackTrace();
         } catch (InterruptedException e) {
             e.printStackTrace();
-        } /*catch (UnknownHostException e) {
-           System.err.println("\""+"response.body()"+"\""+"Is no IPv"+version+" address");
-        }*/
+        } catch (ExecutionException e) {
+            e.printStackTrace();
+        } catch (TimeoutException e) {
+            e.printStackTrace();
+        }
+        // in case of error, this function return null, which will not trigger an updateIP
         return null;
     }
 
@@ -95,9 +108,9 @@ public class NsupdateClient {
                 .build();
 
         try {
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            //System.out.println(response.statusCode());
-            //System.out.println(response.body());
+            CompletableFuture<HttpResponse<String>> requestThread = client.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = requestThread.get(HTTP_REQUEST_TIMEOUT, TimeUnit.SECONDS);
+
             String responseString = response.body();
             if(response.statusCode() == 200 && responseString.startsWith("good ")) {
                 System.out.println("Updated with: " + responseString);
@@ -105,6 +118,32 @@ public class NsupdateClient {
             }else if(response.statusCode() == 200 && responseString.startsWith("nochg ")){
                 System.out.println("Updated with: " + responseString);
                 return Inet6Address.getByName(responseString.substring(6));
+            }else if(response.statusCode() == 200 && responseString.startsWith("notfqdn")){
+                System.out.println("Error: " + responseString);
+                System.out.println("Wrong Hostname, check your config");
+                System.exit(-1);
+            }else if(response.statusCode() == 200 && responseString.startsWith("badauth")){
+                System.out.println("Error: " + responseString);
+                System.out.println("Wrong Username/Password, check your config");
+                System.exit(-1);
+            }else if(response.statusCode() == 200 && responseString.startsWith("conflict")){
+                System.out.println("Error: " + responseString);
+                System.out.println("Problem with your DNS record. Check DNS config");
+                System.exit(-1);
+            }else if(response.statusCode() == 200 && responseString.startsWith("911")){
+                System.out.println("Error: " + responseString);
+                //Lets wait 5 minutes before we continue:
+                try {
+                    Thread.sleep(5*60000);
+                } catch (InterruptedException e) {
+                    System.out.println("Thread got interrupted"); //but wee keep going
+                    e.printStackTrace();
+                }
+            }else if(response.statusCode() == 200 &&
+                    (responseString.startsWith("abuse") || responseString.startsWith("badagent"))){
+                System.out.println("Error: " + responseString);
+                System.out.println("Major Error!");
+                System.exit(-1);
             }else{
                 System.err.println("Error: " + responseString);
                 return null;
@@ -113,11 +152,15 @@ public class NsupdateClient {
             e.printStackTrace();
         } catch (InterruptedException e) {
             e.printStackTrace();
+        } catch (ExecutionException e) {
+            e.printStackTrace();
+        } catch (TimeoutException e) {
+            e.printStackTrace();
         }
         return null;
     }
 
-    public static void main(String[] args) throws InterruptedException {
+    public static void main(String[] args) {
         new NsupdateClient();
     }
 }
